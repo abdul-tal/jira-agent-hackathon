@@ -149,8 +149,8 @@ class Settings(BaseSettings):
         le=20
     )
     similarity_threshold: float = Field(
-        default=0.7,
-        description="Minimum similarity score for matches",
+        default=0.3,
+        description="Minimum similarity score for matches (0.0-1.0, lower=more permissive)",
         ge=0.0,
         le=1.0
     )

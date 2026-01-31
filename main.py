@@ -32,7 +32,18 @@ def main():
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level.lower(),
-        reload=False
+        reload=True,  # Auto-reload on code changes
+        reload_dirs=["src"],  # Only watch src directory
+        reload_includes=["*.py"],  # Only watch Python files
+        reload_excludes=[
+            "streamlit_app.py",  # Exclude Streamlit UI
+            "*.sh",  # Exclude shell scripts
+            "*.md",  # Exclude markdown files
+            "data/*",  # Exclude data directory
+            "logs/*",  # Exclude logs
+            "tests/*",  # Exclude tests
+            ".env*",  # Exclude env files
+        ]
     )
 
 

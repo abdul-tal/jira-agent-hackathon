@@ -89,7 +89,25 @@ This ensures all secrets are properly configured before starting.
 
 ## 🚀 Usage
 
-### Start the Server
+### Option 1: Streamlit UI (Recommended)
+
+Beautiful chat interface for easy interaction:
+
+```bash
+# Terminal 1: Start API server
+python main.py
+
+# Terminal 2: Start Streamlit UI
+streamlit run streamlit_app.py
+# Or use the script:
+./run_ui.sh
+```
+
+The UI will open at `http://localhost:8501`
+
+**See [STREAMLIT_UI.md](STREAMLIT_UI.md) for complete UI documentation**
+
+### Option 2: API Only
 
 ```bash
 python main.py

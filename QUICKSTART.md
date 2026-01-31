@@ -76,6 +76,20 @@ This will check that all required secrets are properly configured before you sta
 
 ## Step 4: Run
 
+### Option A: With Streamlit UI (Recommended)
+
+```bash
+# Terminal 1: Start API
+python main.py
+
+# Terminal 2: Start UI
+streamlit run streamlit_app.py
+```
+
+Open http://localhost:8501 in your browser and start chatting!
+
+### Option B: API Only
+
 ```bash
 python main.py
 ```

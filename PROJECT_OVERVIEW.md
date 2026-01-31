@@ -125,6 +125,12 @@ graph LR
 
 ## 🚀 Key Features
 
+### 0. Beautiful Streamlit UI ✨ NEW!
+- **Chat Interface**: Natural conversation with the assistant
+- **Visual Ticket Display**: Cards showing similarity scores, status, priority
+- **Real-time Status**: API health and statistics monitoring
+- **User-Friendly**: No command-line knowledge needed!
+
 ### 1. Multi-Agent Architecture
 - **Guardrail Agent**: Validates requests, prevents misuse
 - **Orchestrator Agent**: Classifies intent, routes to appropriate agent

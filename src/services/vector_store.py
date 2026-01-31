@@ -87,16 +87,22 @@ class VectorStore:
         similarities = 1 / (1 + distances[0])
         
         results = []
+        all_candidates = []
         for idx, similarity in zip(indices[0], similarities):
             if idx < len(self.metadata):
                 ticket = self.metadata[idx].copy()
                 ticket['similarity_score'] = float(similarity)
+                all_candidates.append((ticket['key'], similarity))
                 
                 # Apply threshold if specified
                 if threshold is None or similarity >= threshold:
                     results.append((ticket, float(similarity)))
         
-        logger.info(f"Found {len(results)} similar tickets")
+        # Log all candidates with their scores
+        if all_candidates:
+            logger.info(f"Similarity scores: {[(k, f'{s:.4f}') for k, s in all_candidates]}, threshold={threshold}")
+        
+        logger.info(f"Found {len(results)} similar tickets out of {len(indices[0])} candidates (threshold={threshold})")
         return results
     
     def save(self):
