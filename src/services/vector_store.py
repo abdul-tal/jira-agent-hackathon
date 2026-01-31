@@ -14,13 +14,21 @@ from src.models import JiraTicket
 class VectorStore:
     """FAISS-based vector store for similarity search"""
     
-    def __init__(self):
-        """Initialize FAISS index"""
+    def __init__(self, dimension: int = 1536):
+        """
+        Initialize FAISS index for Jira tickets (1:1 mapping, no chunking)
+        
+        Args:
+            dimension: Embedding dimension (default: 1536 for OpenAI text-embedding-3-small)
+        
+        Note: Each ticket gets exactly one embedding. No chunking is used because
+        Jira tickets are naturally small and focused (200-3000 chars typical).
+        """
         self.index_path = settings.vector_store_path / f"{settings.faiss_index_name}.index"
         self.metadata_path = settings.vector_store_path / f"{settings.faiss_index_name}_metadata.pkl"
         self.index = None
         self.metadata: List[Dict[str, Any]] = []
-        self.dimension = 384  # Dimension for all-MiniLM-L6-v2
+        self.dimension = dimension  # 1536 for OpenAI text-embedding-3-small, 3072 for large
         
         # Load existing index if available
         if self.index_path.exists():

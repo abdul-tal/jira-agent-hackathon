@@ -23,6 +23,10 @@ class TicketSyncJob:
     async def sync_tickets(self):
         """
         Fetch all Jira tickets, generate embeddings, and update vector store
+        
+        Note: No chunking is used because Jira tickets are naturally small (200-3000 chars)
+        and well below OpenAI's limit (8191 tokens = ~32,000 chars). Each ticket gets
+        one embedding for simplicity, lower cost, and better performance.
         """
         try:
             logger.info("Starting ticket sync job...")
@@ -37,24 +41,25 @@ class TicketSyncJob:
             
             logger.info(f"Fetched {len(tickets)} tickets from Jira")
             
-            # Convert tickets to searchable text
-            logger.info("Generating embeddings...")
+            # Convert tickets to searchable text (one text per ticket, no chunking)
+            logger.info("Converting tickets to searchable text...")
             ticket_texts = [
                 self.embeddings_service.ticket_to_text(ticket)
                 for ticket in tickets
             ]
             
-            # Generate embeddings
+            # Generate embeddings (one embedding per ticket)
+            logger.info(f"Generating OpenAI embeddings for {len(ticket_texts)} tickets...")
             embeddings = self.embeddings_service.generate_embeddings_batch(ticket_texts)
             
             logger.info(f"Generated {len(embeddings)} embeddings")
             
-            # Rebuild vector store
+            # Rebuild vector store (simple 1:1 mapping - one ticket = one embedding)
             logger.info("Updating vector store...")
             self.vector_store.rebuild(tickets, embeddings)
             
             logger.info(
-                f"Ticket sync completed successfully! "
+                f"✅ Ticket sync completed successfully! "
                 f"Indexed {len(tickets)} tickets in vector store."
             )
             

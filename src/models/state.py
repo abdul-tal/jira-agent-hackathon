@@ -6,7 +6,8 @@ from datetime import datetime
 
 class JiraTicket(TypedDict):
     """Jira ticket data structure"""
-    key: str
+    id: Optional[str]  # Internal Jira ID (e.g., "10003")
+    key: str  # Human-readable key (e.g., "SCRUM-4")
     summary: str
     description: str
     status: str

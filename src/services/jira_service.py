@@ -227,6 +227,7 @@ class JiraService:
     def _issue_to_ticket(self, issue) -> JiraTicket:
         """Convert Jira issue object to JiraTicket dict"""
         return JiraTicket(
+            id=str(issue.id) if hasattr(issue, 'id') else None,
             key=issue.key,
             summary=issue.fields.summary,
             description=issue.fields.description or "",
@@ -296,6 +297,7 @@ class JiraService:
         description = self._extract_description_text(fields.get("description"))
         
         return JiraTicket(
+            id=issue_data.get("id"),  # Extract internal Jira ID
             key=issue_data.get("key", ""),
             summary=fields.get("summary", ""),
             description=description,
