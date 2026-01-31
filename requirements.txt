@@ -1,0 +1,42 @@
+# Core Dependencies
+python-dotenv==1.0.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# LangChain & LangGraph
+langchain==0.1.0
+langchain-openai==0.0.2
+langchain-community==0.0.10
+langgraph==0.0.20
+
+# Vector Store
+faiss-cpu==1.7.4
+sentence-transformers==2.2.2
+
+# Jira Integration
+jira==3.5.2
+atlassian-python-api==3.41.0
+
+# API
+fastapi==0.109.0
+uvicorn[standard]==0.25.0
+httpx==0.26.0
+
+# Background Jobs
+apscheduler==3.10.4
+
+# Utilities
+python-multipart==0.0.6
+aiofiles==23.2.1
+tenacity==8.2.3
+
+# Logging & Monitoring
+loguru==0.7.2
+prometheus-client==0.19.0
+
+# Development
+pytest==7.4.4
+pytest-asyncio==0.23.3
+black==23.12.1
+ruff==0.1.11
+
