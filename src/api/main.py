@@ -143,30 +143,66 @@ async def chat(request: ChatRequest):
         tickets = []
         intent = result.get("intent", "search")
         
-        if intent == "search":
-            # Similarity agent was called - return similar tickets
+        if intent == "search" or result.get("similar_tickets"):
+            # Similarity agent was called - return similar tickets (user decides next action)
             response_type = "SIMILAR"
             if result.get("similar_tickets"):
-                tickets = [TicketInfo(**ticket) for ticket in result["similar_tickets"]]
+                for ticket in result["similar_tickets"]:
+                    try:
+                        tickets.append(TicketInfo(**ticket))
+                    except Exception:
+                        tickets.append(TicketInfo(
+                            key=ticket.get("key", ""),
+                            summary=ticket.get("summary", ""),
+                            description=ticket.get("description", ""),
+                            status=ticket.get("status", ""),
+                            priority=ticket.get("priority", ""),
+                            similarity_score=ticket.get("similarity_score")
+                        ))
         
         elif intent == "create":
-            # Jira agent was called to create a new ticket
+            # Jira agent created a new ticket
             response_type = "CREATED"
             if result.get("created_ticket"):
-                tickets = [TicketInfo(**result["created_ticket"])]
+                ct = result["created_ticket"]
+                try:
+                    tickets = [TicketInfo(**ct)]
+                except Exception:
+                    tickets = [TicketInfo(
+                        key=ct.get("key", ""),
+                        summary=ct.get("summary", ""),
+                        description=ct.get("description", ""),
+                        status=ct.get("status", ""),
+                        priority=ct.get("priority", ""),
+                        similarity_score=ct.get("similarity_score")
+                    )]
         
         elif intent == "update":
-            # Jira agent was called to update an existing ticket
+            # Jira agent updated an existing ticket
             response_type = "UPDATED"
             if result.get("created_ticket"):
-                # For updates, created_ticket contains the updated ticket info
-                tickets = [TicketInfo(**result["created_ticket"])]
+                ct = result["created_ticket"]
+                try:
+                    tickets = [TicketInfo(**ct)]
+                except Exception:
+                    tickets = [TicketInfo(
+                        key=ct.get("key", ""),
+                        summary=ct.get("summary", ""),
+                        description=ct.get("description", ""),
+                        status=ct.get("status", ""),
+                        priority=ct.get("priority", ""),
+                        similarity_score=ct.get("similarity_score")
+                    )]
         
         else:
-            # Fallback to SIMILAR for unknown intents
+            # Fallback (info/help)
             response_type = "SIMILAR"
             if result.get("similar_tickets"):
-                tickets = [TicketInfo(**ticket) for ticket in result["similar_tickets"]]
+                for ticket in result["similar_tickets"]:
+                    try:
+                        tickets.append(TicketInfo(**ticket))
+                    except Exception:
+                        pass
         
         return ChatResponse(
             session_id=request.session_id,
@@ -176,6 +212,8 @@ async def chat(request: ChatRequest):
             error=result.get("error")
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing chat request: {e}")
         return ChatResponse(

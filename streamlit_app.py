@@ -424,17 +424,18 @@ def main():
         # Help Section
         st.header("💡 How to Use")
         st.markdown("""
-        **Search for tickets:**
-        - "Find tickets about login issues"
-        - "Show me bugs related to API"
+        **First turn (check/verify):**
+        - "Check if there are tickets about login issues"
+        - "Verify similar tickets for payment bug"
+        - "Find tickets related to API timeout"
         
-        **Create tickets:**
-        - "Create a bug for payment timeout"
-        - "Add a task to implement dark mode"
-        
-        **Update tickets:**
+        **Then create or update:**
+        - "Create new ticket" or "Create a ticket for this"
         - "Update SCRUM-123 to High priority"
-        - "Change status of SCRUM-456 to Done"
+        
+        **Direct create/update:**
+        - "Create a bug for payment timeout"
+        - "Update SCRUM-123 status to Done"
         """)
         
         st.divider()

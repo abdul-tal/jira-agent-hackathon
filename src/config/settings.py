@@ -39,6 +39,8 @@ class Settings(BaseSettings):
         description="OpenAI API key - get from https://platform.openai.com/api-keys"
     )
     openai_model: str = "gpt-4-turbo-preview"
+    # ChatGPT model for guardrail (gpt-4o, gpt-4-turbo, gpt-3.5-turbo)
+    guardrail_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
     
     # Jira Configuration - REQUIRED (from .env)

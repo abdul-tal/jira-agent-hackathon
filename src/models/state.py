@@ -27,15 +27,25 @@ class AgentState(TypedDict):
     user_query: str
     
     # Intent classification
-    intent: Optional[str]  # "search", "create", "update", "invalid"
+    intent: Optional[str]  # "search", "create", "update", "verify", "invalid"
     
     # Guardrail results
     is_valid_request: bool
     guardrail_message: Optional[str]
     
+    # Session state (from session store)
+    session_exists: Optional[bool]
+    is_first_turn: Optional[bool]
+    
+    # Routing decision from orchestration
+    route_to: Optional[str]  # "similarity", "jira", "final"
+    
     # Similarity search results
     similar_tickets: List[JiraTicket]
     has_similar_tickets: bool
+    
+    # Historical data check (does vector store have tickets?)
+    has_historical_data: Optional[bool]
     
     # Jira operations
     action_type: Optional[str]  # "create", "update", "none"

@@ -29,6 +29,23 @@ def get_embeddings_service() -> EmbeddingsService:
     return _embeddings_service
 
 
+def has_historical_data() -> bool:
+    """
+    Check if the vector store has historical ticket data for similarity search.
+    
+    Returns:
+        True if vector store has indexed tickets, False otherwise
+    """
+    try:
+        vector_store = get_vector_store()
+        if vector_store.index is None:
+            return False
+        return vector_store.index.ntotal > 0
+    except Exception as e:
+        logger.error(f"Error checking historical data: {e}")
+        return False
+
+
 @tool
 def search_similar_tickets_tool(query: str, max_results: int = 5) -> dict:
     """

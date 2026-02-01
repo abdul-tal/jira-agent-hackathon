@@ -29,7 +29,7 @@ def test_health_endpoint():
 
 def test_chat_empty_query():
     """Test chat endpoint with empty query"""
-    response = client.post("/chat", json={"query": ""})
+    response = client.post("/chat", json={"session_id": "test", "question": ""})
     assert response.status_code == 400
 
 
