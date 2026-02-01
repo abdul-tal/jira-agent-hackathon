@@ -19,7 +19,16 @@ llm = ChatOpenAI(
 
 
 ORCHESTRATOR_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are an orchestrator for a Jira assistance chatbot with conversation memory. Your role is to classify user intent and extract relevant information, using conversation context when available.
+    ("system", """You are an orchestrator for a Jira assistance chatbot with conversation memory. Your role is to classify user intent and extract relevant information.
+
+⚠️⚠️⚠️ CRITICAL RULE - ABSOLUTELY NO HTML TAGS ALLOWED ⚠️⚠️⚠️
+
+YOU MUST NEVER, UNDER ANY CIRCUMSTANCES, GENERATE HTML TAGS.
+DO NOT USE: <div>, <span>, <h4>, <p>, <strong>, <b>, <i>, <em>, <ul>, <li>, <br>, or ANY HTML tags.
+ONLY USE PLAIN TEXT. NO HTML. NO EXCEPTIONS.
+If you include ANY HTML tags like <div> or <h4>, you will break the system.
+
+Extract all information as simple plain text only.
 
 Classify the user's query into ONE of these intents:
 - "search": User wants to find or search for existing tickets
@@ -29,13 +38,13 @@ Classify the user's query into ONE of these intents:
 
 **IMPORTANT**: If the user references previous conversation (e.g., "update that ticket", "the one we just created", "add a comment to it"), use the conversation history to resolve the reference and extract the ticket key.
 
-For CREATE intent, also extract:
-- summary: A concise title for the ticket (10-15 words max) - extract the main issue/topic
-- description: Full detailed description including ALL details from the user's query (symptoms, error messages, context, steps, etc.)
-- issue_type: Task, Bug, Story, or Epic (infer from context - use "Bug" if error/issue mentioned, default: Task)
+For CREATE intent, extract these fields:
+- summary: A concise title (10-15 words max) - PLAIN TEXT ONLY, NO HTML TAGS
+- description: Full detailed description - PLAIN TEXT ONLY, NO HTML TAGS, NO <div>, NO <span>, NO <h4>
+- issue_type: Task, Bug, Story, or Epic (default: Task)
 - project_key: Project key if mentioned (default: SCRUM)
 
-IMPORTANT: For description, include the complete details from the user's message, not just a brief summary.
+REMINDER: Extract summary and description as simple plain text. Do NOT wrap them in HTML tags.
 
 For UPDATE intent, also extract:
 - issue_key: The Jira ticket key (e.g., PROJ-123) - look in conversation history if not in current query
@@ -56,12 +65,13 @@ Respond in JSON format:
 
 Only include relevant fields in ticket_data based on the intent.
 
-Examples:
+Examples - Notice how summary and description are PLAIN TEXT without ANY HTML tags:
 - "Create a ticket for login bug with OAuth2. Users getting 401 error" -> {{"intent": "create", "ticket_data": {{"summary": "Fix login authentication bug with OAuth2", "description": "Users are unable to login with OAuth2 credentials. Getting 401 error when attempting authentication.", "issue_type": "Bug", "project_key": "SCRUM"}}}}
 - "Create task to implement user dashboard" -> {{"intent": "create", "ticket_data": {{"summary": "Implement user dashboard", "description": "Need to create a user dashboard showing account statistics and recent activity", "issue_type": "Task", "project_key": "SCRUM"}}}}
 - "Update PROJ-123 with progress update" -> {{"intent": "update", "ticket_data": {{"issue_key": "PROJ-123", "comment": "Progress update"}}}}
-- With history showing "Created ticket SCRUM-42": "Update it with comment: fixed" -> {{"intent": "update", "ticket_data": {{"issue_key": "SCRUM-42", "comment": "fixed"}}}}
-- "Find tickets about API" -> {{"intent": "search", "ticket_data": {{}}}}"""),
+- "Find tickets about API" -> {{"intent": "search", "ticket_data": {{}}}}
+
+FINAL REMINDER: Your response must contain ONLY plain text in the summary and description fields. NO HTML TAGS WHATSOEVER."""),
     ("user", "{query}")
 ])
 
@@ -131,8 +141,19 @@ async def orchestrator_node(state: AgentState, config: dict = None) -> AgentStat
         if intent == "create":
             if not ticket_data.get("summary"):
                 logger.warning("Orchestrator: No summary extracted, will use user query as fallback")
+            else:
+                logger.info(f"Orchestrator: Extracted summary = '{ticket_data.get('summary')}'")
+            
             if not ticket_data.get("description"):
                 logger.warning("Orchestrator: No description extracted, will use user query as fallback")
+            else:
+                desc_preview = ticket_data.get("description", "")[:200]
+                logger.info(f"Orchestrator: Extracted description = '{desc_preview}'")
+                
+                # Check if HTML is present
+                if '<' in desc_preview or '>' in desc_preview:
+                    logger.error(f"⚠️ HTML DETECTED in description from orchestrator!")
+                    logger.error(f"Full description: {ticket_data.get('description')}")
         
         state["intent"] = intent
         state["ticket_data"] = ticket_data

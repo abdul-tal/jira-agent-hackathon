@@ -2,6 +2,7 @@
 
 import sys
 import os
+import re
 from loguru import logger
 
 from src.models import AgentState
@@ -14,6 +15,40 @@ jira_agents_path = os.path.join(
 sys.path.insert(0, jira_agents_path)
 
 from services.jira_services import create_jira_ticket, update_jira_ticket_with_comment
+
+
+def strip_html_tags(text: str) -> str:
+    """
+    Remove HTML tags from text
+    
+    Args:
+        text: Text that might contain HTML tags
+    
+    Returns:
+        Clean text without HTML tags
+    """
+    if not text:
+        return text
+    
+    logger.info(f"Stripping HTML from: {text[:100]}")
+    
+    # Remove HTML tags
+    clean = re.sub(r'<[^>]+>', '', text)
+    
+    # Decode HTML entities
+    clean = clean.replace('&nbsp;', ' ')
+    clean = clean.replace('&lt;', '<')
+    clean = clean.replace('&gt;', '>')
+    clean = clean.replace('&amp;', '&')
+    clean = clean.replace('&quot;', '"')
+    
+    # Remove extra whitespace and newlines
+    clean = re.sub(r'\s+', ' ', clean)
+    
+    result = clean.strip()
+    logger.info(f"After stripping: {result[:100]}")
+    
+    return result
 
 
 async def jira_node(state: AgentState, config: dict = None) -> AgentState:
@@ -49,14 +84,21 @@ async def jira_node(state: AgentState, config: dict = None) -> AgentState:
             if not summary or summary.strip() == "":
                 summary = state["user_query"][:100]  # Truncate to 100 chars for summary
             
+            # Strip any HTML tags from summary (safety measure)
+            summary = strip_html_tags(summary)
+            
             # Ensure description is never empty - use full query as fallback
             description = ticket_data.get("description", "")
             if not description or description.strip() == "":
                 description = state["user_query"]
             
+            # Strip any HTML tags from description (safety measure)
+            description = strip_html_tags(description)
+            
             issue_type = ticket_data.get("issue_type", "Task")
             
             logger.info(f"Creating Jira ticket: {summary}")
+            logger.info(f"Description preview: {description[:100]}")
             
             # Create the ticket
             issue_key = await create_jira_ticket(
@@ -66,19 +108,27 @@ async def jira_node(state: AgentState, config: dict = None) -> AgentState:
                 issue_type=issue_type
             )
             
+            # Store clean ticket data in the same format as similarity agent
+            # This ensures frontend renders it consistently
             state["created_ticket"] = {
                 "key": issue_key,
-                "summary": summary,
-                "description": description,
-                "project": project_key,
-                "type": issue_type,
+                "summary": summary,  # Already stripped of HTML
+                "description": description,  # Already stripped of HTML
                 "status": "To Do",
-                "priority": "Medium"
+                "priority": "Medium",
+                "issue_type": issue_type,  # Match similarity agent field name
+                "labels": [],
+                "similarity_score": None,
+                "id": None,
+                "assignee": None,
+                "created": "",
+                "updated": ""
             }
             state["action_type"] = "create"
-            state["final_response"] = f"Successfully created ticket {issue_key}"
+            state["final_response"] = f"Successfully created ticket {issue_key}: {summary}"
             
             logger.info(f"Jira agent: Created ticket {issue_key}")
+            logger.info(f"Jira agent: Final response = {state['final_response']}")
             
             # Emit success event
             if event_queue:
@@ -109,6 +159,21 @@ async def jira_node(state: AgentState, config: dict = None) -> AgentState:
             )
             
             if success:
+                # Store updated ticket in same format as similarity agent
+                state["created_ticket"] = {
+                    "key": issue_key,
+                    "summary": f"Updated ticket {issue_key}",
+                    "description": comment,
+                    "status": "In Progress",  # Assume it's in progress after update
+                    "priority": "Medium",
+                    "issue_type": "Task",
+                    "labels": [],
+                    "similarity_score": None,
+                    "id": None,
+                    "assignee": None,
+                    "created": "",
+                    "updated": ""
+                }
                 state["action_type"] = "update"
                 state["final_response"] = f"Successfully updated ticket {issue_key}"
                 logger.info(f"Jira agent: Updated ticket {issue_key}")

@@ -81,9 +81,16 @@ def should_continue_after_guardrail(state: AgentState) -> Literal["orchestrator"
     Returns:
         Next node to execute
     """
+    # If guardrail already set a response (greetings/help), go to end
+    if state.get("final_response"):
+        logger.info("Guardrail handled request directly, skipping to end")
+        return "end"
+    
+    # If request is valid, continue to orchestrator
     if state["is_valid_request"]:
         return "orchestrator"
     else:
+        # Invalid request, go to end
         return "end"
 
 
@@ -243,6 +250,10 @@ async def run_jira_assistant(user_query: str, conversation_id: str = None, event
         
         # Add assistant's response to messages
         response_message = final_state.get("final_response", "I'm sorry, I couldn't process your request.")
+        
+        # Log the response for debugging
+        logger.info(f"Final response from graph: {response_message[:200]}")  # Log first 200 chars
+        logger.info(f"Response type: {type(response_message)}")
         
         # Update messages with AI response for next conversation turn
         if "messages" in final_state:

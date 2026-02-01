@@ -25,27 +25,28 @@ Valid requests include:
 - Updating existing Jira tickets
 - Getting information about tickets
 - General questions about Jira usage
+- Conversational queries and greetings
 
 Invalid requests include:
 - Requests containing harmful, offensive, or inappropriate content
 - Requests to delete tickets (not supported)
 - Requests to access unauthorized projects or data
 - Spam or nonsensical requests
-- Requests unrelated to Jira or project management
+- Requests completely unrelated to work or project management
 
 Analyze the user query and determine if it's a valid request.
 Respond with:
 - "VALID" if the request is appropriate
 - "INVALID: [reason]" if the request should be blocked
 
-Be strict but fair. When in doubt, allow the request."""),
+Be permissive and allow conversational queries. When in doubt, allow the request."""),
     ("user", "User query: {query}")
 ])
 
 
 async def guardrail_node(state: AgentState, config: dict = None) -> AgentState:
     """
-    Validate user request using guardrails
+    Validate user request using guardrails and handle simple conversational queries
     
     Args:
         state: Current agent state
@@ -62,9 +63,58 @@ async def guardrail_node(state: AgentState, config: dict = None) -> AgentState:
         await event_queue.put({'event': 'guardrail', 'message': '🛡️ Validating request...'})
     
     query = state["user_query"]
+    query_lower = query.lower().strip()
+    
+    # Handle simple greetings and conversational queries directly
+    greetings = ["hi", "hello", "hey", "good morning", "good afternoon", "good evening", "greetings"]
+    help_queries = ["help", "what can you do", "how can you help", "what do you do", "capabilities", "features"]
+    
+    # Check for simple greetings
+    if query_lower in greetings or any(query_lower.startswith(g) for g in greetings):
+        state["is_valid_request"] = False  # Will skip to end
+        state["guardrail_message"] = "greeting_handled"
+        state["final_response"] = (
+            "Hello! 👋 I'm your Jira assistant. I can help you:\n\n"
+            "- 🔍 **Search** for existing tickets\n"
+            "- ➕ **Create** new tickets\n"
+            "- ✏️ **Update** existing tickets\n\n"
+            "What would you like to do today?"
+        )
+        logger.info("Guardrail: Handled greeting directly")
+        
+        # Emit completion event
+        if event_queue:
+            await event_queue.put({'event': 'greeting_handled', 'message': '👋 Greeting responded'})
+        
+        return state
+    
+    # Check for help/capability queries
+    if any(help_word in query_lower for help_word in help_queries):
+        state["is_valid_request"] = False  # Will skip to end
+        state["guardrail_message"] = "help_handled"
+        state["final_response"] = (
+            "I'm your Jira assistant! Here's what I can do:\n\n"
+            "🔍 **Search for tickets**\n"
+            "   - \"Find tickets about login issues\"\n"
+            "   - \"Show me all high priority bugs\"\n\n"
+            "➕ **Create new tickets**\n"
+            "   - \"Create a task for implementing dark mode\"\n"
+            "   - \"Create a bug for the payment gateway error\"\n\n"
+            "✏️ **Update existing tickets**\n"
+            "   - \"Update SCRUM-42 with a comment: completed\"\n"
+            "   - \"Add a comment to SCRUM-15\"\n\n"
+            "Just ask me naturally, and I'll help you manage your Jira tickets!"
+        )
+        logger.info("Guardrail: Handled help query directly")
+        
+        # Emit completion event
+        if event_queue:
+            await event_queue.put({'event': 'help_handled', 'message': '💡 Help information provided'})
+        
+        return state
     
     try:
-        # Check with LLM
+        # Check with LLM for other requests
         chain = GUARDRAIL_PROMPT | llm
         response = chain.invoke({"query": query})
         result = response.content.strip()
