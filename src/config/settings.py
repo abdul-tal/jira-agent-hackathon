@@ -11,6 +11,7 @@ Create a .env file in the project root with your secrets:
 See .env.example for a complete template.
 """
 
+from typing import Optional
 from pydantic import field_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
@@ -161,10 +162,41 @@ class Settings(BaseSettings):
         le=10
     )
     
+    # LangSmith Configuration (Optional - for tracing/debugging)
+    langchain_tracing_v2: bool = Field(
+        default=False,
+        description="Enable LangSmith tracing for debugging"
+    )
+    langchain_api_key: Optional[str] = Field(
+        default=None,
+        description="LangSmith API key - get from https://smith.langchain.com/"
+    )
+    langchain_project: str = Field(
+        default="jira-assistant",
+        description="LangSmith project name"
+    )
+    langchain_endpoint: str = Field(
+        default="https://api.smith.langchain.com",
+        description="LangSmith API endpoint"
+    )
+    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Ensure vector store directory exists
         self.vector_store_path.mkdir(parents=True, exist_ok=True)
+        
+        # Configure LangSmith tracing if enabled
+        if self.langchain_tracing_v2 and self.langchain_api_key:
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            os.environ["LANGCHAIN_API_KEY"] = self.langchain_api_key
+            os.environ["LANGCHAIN_PROJECT"] = self.langchain_project
+            os.environ["LANGCHAIN_ENDPOINT"] = self.langchain_endpoint
+            # Don't log the full API key for security
+            key_preview = self.langchain_api_key[:15] + "..." if len(self.langchain_api_key) > 15 else "***"
+            print(f"✅ LangSmith tracing enabled for project: {self.langchain_project} (key: {key_preview})")
+        else:
+            # Explicitly disable if not configured
+            os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
 def load_settings() -> Settings:
