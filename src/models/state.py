@@ -2,6 +2,7 @@
 
 from typing import TypedDict, List, Dict, Any, Optional
 from datetime import datetime
+from langchain_core.messages import BaseMessage
 
 
 class JiraTicket(TypedDict):
@@ -25,6 +26,9 @@ class AgentState(TypedDict):
     
     # User input
     user_query: str
+    
+    # Conversation memory
+    messages: List[BaseMessage]  # Chat history for memory
     
     # Intent classification
     intent: Optional[str]  # "search", "create", "update", "invalid"

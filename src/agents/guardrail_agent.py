@@ -43,17 +43,23 @@ Be strict but fair. When in doubt, allow the request."""),
 ])
 
 
-def guardrail_node(state: AgentState) -> AgentState:
+async def guardrail_node(state: AgentState, config: dict = None) -> AgentState:
     """
     Validate user request using guardrails
     
     Args:
         state: Current agent state
+        config: LangGraph config containing runtime context
     
     Returns:
         Updated state with validation results
     """
     logger.info("Guardrail agent: Validating request")
+    
+    # Emit event if queue is available
+    event_queue = config.get("configurable", {}).get("event_queue") if config else None
+    if event_queue:
+        await event_queue.put({'event': 'guardrail', 'message': '🛡️ Validating request...'})
     
     query = state["user_query"]
     

@@ -1,20 +1,28 @@
 """LangGraph workflow for Jira assistance"""
 
+import asyncio
 from datetime import datetime
 from typing import Literal
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import HumanMessage, AIMessage
 from loguru import logger
 
 from src.models import AgentState
 from src.agents import orchestrator_node, guardrail_node, similarity_node, jira_node
 
 
-def create_final_response_node(state: AgentState) -> AgentState:
+# Global memory saver for conversation persistence
+memory = MemorySaver()
+
+
+async def create_final_response_node(state: AgentState, config: dict = None) -> AgentState:
     """
     Create final response for search or info intents
     
     Args:
         state: Current agent state
+        config: LangGraph config containing runtime context
     
     Returns:
         Updated state with final response
@@ -92,8 +100,9 @@ def should_check_similarity(state: AgentState) -> Literal["similarity", "jira", 
     intent = state.get("intent", "info")
     
     if intent == "create":
-        # Check for similar tickets before creating
-        return "similarity"
+        # Go directly to Jira agent to create the ticket
+        logger.info("Create intent - going directly to Jira agent")
+        return "jira"
     elif intent == "update":
         # Go directly to Jira agent for updates
         return "jira"
@@ -104,46 +113,14 @@ def should_check_similarity(state: AgentState) -> Literal["similarity", "jira", 
         return "final"
 
 
-def should_create_ticket(state: AgentState) -> Literal["jira", "final"]:
-    """
-    Decide whether to create ticket after similarity search
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Next node to execute
-    """
-    intent = state.get("intent", "search")
-    
-    # If intent was create and no highly similar tickets found, create the ticket
-    if intent == "create":
-        similar_tickets = state.get("similar_tickets", [])
-        
-        # Check if any tickets are very similar (>90% similarity)
-        has_duplicate = any(
-            ticket.get("similarity_score", 0) > 0.9
-            for ticket in similar_tickets
-        )
-        
-        if has_duplicate:
-            # Show similar tickets instead of creating
-            logger.info("Found highly similar ticket, not creating new one")
-            return "final"
-        else:
-            # Proceed with creation
-            return "jira"
-    else:
-        # For search intent, just show results
-        return "final"
 
 
 def create_jira_graph() -> StateGraph:
     """
-    Create the LangGraph workflow for Jira assistance
+    Create the LangGraph workflow for Jira assistance with memory
     
     Returns:
-        Compiled StateGraph
+        Compiled StateGraph with checkpointing enabled
     """
     # Create graph
     workflow = StateGraph(AgentState)
@@ -179,41 +156,64 @@ def create_jira_graph() -> StateGraph:
         }
     )
     
-    workflow.add_conditional_edges(
-        "similarity",
-        should_create_ticket,
-        {
-            "jira": "jira",
-            "final": "final"
-        }
-    )
+    # Similarity only goes to final (for search results)
+    workflow.add_edge("similarity", "final")
     
     workflow.add_edge("jira", END)
     workflow.add_edge("final", END)
     
-    # Compile
-    graph = workflow.compile()
+    # Compile with memory checkpointing
+    graph = workflow.compile(checkpointer=memory)
     
-    logger.info("Jira graph compiled successfully")
+    logger.info("Jira graph compiled successfully with memory enabled")
     return graph
 
 
-async def run_jira_assistant(user_query: str, conversation_id: str = None) -> dict:
+def get_conversation_history(conversation_id: str) -> list:
     """
-    Run the Jira assistant workflow
+    Retrieve conversation history for a given conversation ID
+    
+    Args:
+        conversation_id: The conversation/thread ID
+    
+    Returns:
+        List of messages in the conversation
+    """
+    try:
+        thread_id = conversation_id or "default"
+        config = {"configurable": {"thread_id": thread_id}}
+        
+        # Get checkpoint from memory
+        checkpoint = memory.get(config)
+        if checkpoint and "messages" in checkpoint.get("channel_values", {}):
+            return checkpoint["channel_values"]["messages"]
+        return []
+    except Exception as e:
+        logger.error(f"Error retrieving conversation history: {e}")
+        return []
+
+
+async def run_jira_assistant(user_query: str, conversation_id: str = None, event_queue: 'asyncio.Queue' = None) -> dict:
+    """
+    Run the Jira assistant workflow with conversation memory
     
     Args:
         user_query: User's query/request
-        conversation_id: Optional conversation ID
+        conversation_id: Optional conversation ID (used as thread_id for memory)
+        event_queue: Optional asyncio queue for streaming events
     
     Returns:
         Dictionary with response and metadata
     """
-    logger.info(f"Processing query: {user_query}")
+    logger.info(f"Processing query: {user_query} [conversation_id: {conversation_id}]")
     
-    # Initialize state
+    # Use conversation_id as thread_id, or create a default one
+    thread_id = conversation_id or "default"
+    
+    # Initialize state with user message
     initial_state: AgentState = {
         "user_query": user_query,
+        "messages": [HumanMessage(content=user_query)],
         "intent": None,
         "is_valid_request": True,
         "guardrail_message": None,
@@ -228,14 +228,28 @@ async def run_jira_assistant(user_query: str, conversation_id: str = None) -> di
         "error": None
     }
     
-    # Create and run graph
+    # Create graph and configure with thread_id for memory
     graph = create_jira_graph()
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "event_queue": event_queue  # Pass event queue in config (not serialized)
+        }
+    }
     
     try:
-        final_state = await graph.ainvoke(initial_state)
+        # Run graph with memory enabled
+        final_state = await graph.ainvoke(initial_state, config)
+        
+        # Add assistant's response to messages
+        response_message = final_state.get("final_response", "I'm sorry, I couldn't process your request.")
+        
+        # Update messages with AI response for next conversation turn
+        if "messages" in final_state:
+            final_state["messages"].append(AIMessage(content=response_message))
         
         return {
-            "response": final_state.get("final_response", "I'm sorry, I couldn't process your request."),
+            "response": response_message,
             "intent": final_state.get("intent"),
             "similar_tickets": final_state.get("similar_tickets", []),
             "created_ticket": final_state.get("created_ticket"),

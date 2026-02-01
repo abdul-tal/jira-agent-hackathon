@@ -25,6 +25,7 @@ from src.services.vector_store import VectorStore
 from src.services.embeddings_service import EmbeddingsService
 from src.config.settings import settings
 
+print('open ai key: ', settings.openai_api_key)
 
 # Initialize services
 llm = ChatOpenAI(

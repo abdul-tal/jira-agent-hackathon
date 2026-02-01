@@ -336,6 +336,8 @@ def send_chat_message_stream(question: str, session_id: str, status_placeholder)
 
 def display_ticket_card(ticket: Dict[str, Any], show_similarity: bool = True):
     """Display a ticket in a card format"""
+    import html as html_module
+    
     # Determine status color
     status = ticket.get('status', 'Unknown')
     if status == 'Done':
@@ -352,32 +354,40 @@ def display_ticket_card(ticket: Dict[str, Any], show_similarity: bool = True):
     if show_similarity and ticket.get('similarity_score'):
         similarity_badge = f"<span class='similarity-score'>{ticket.get('similarity_score', 0)*100:.0f}% Match</span>"
     
-    # Get description or show placeholder
+    # Get and escape description
     description = ticket.get('description', '').strip()
     if not description:
         description = "<em style='color: #999;'>No description provided</em>"
     else:
-        # Truncate long descriptions
+        # Truncate long descriptions and escape HTML
         if len(description) > 200:
-            description = description[:200] + '...'
+            description = html_module.escape(description[:200]) + '...'
+        else:
+            description = html_module.escape(description)
+    
+    # Escape ticket data to prevent HTML injection
+    ticket_key = html_module.escape(str(ticket.get('key', '')))
+    summary = html_module.escape(str(ticket.get('summary', '')))
+    priority = html_module.escape(str(ticket.get('priority', 'None')))
+    status_escaped = html_module.escape(status)
     
     with st.container():
         st.markdown(f"""
         <div class="ticket-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                <span class="ticket-key">{ticket['key']}</span>
+                <span class="ticket-key">{ticket_key}</span>
                 {similarity_badge}
             </div>
-            <h4 style="color: #212121 !important; margin: 0.5rem 0; font-size: 1.1rem;">{ticket['summary']}</h4>
+            <h4 style="color: #212121 !important; margin: 0.5rem 0; font-size: 1.1rem;">{summary}</h4>
             <div style="color: #424242 !important; margin: 0.8rem 0; line-height: 1.5; background-color: #FFFFFF !important;">
                 {description}
             </div>
             <div style="display: flex; gap: 1rem; margin-top: 1rem; align-items: center;">
                 <span class="status-badge" style="background-color: {status_color} !important; color: #FFFFFF !important;">
-                    {status}
+                    {status_escaped}
                 </span>
                 <span style="color: #424242 !important; font-weight: 500;">
-                    Priority: <strong style="color: #212121 !important;">{ticket.get('priority', 'None')}</strong>
+                    Priority: <strong style="color: #212121 !important;">{priority}</strong>
                 </span>
             </div>
         </div>

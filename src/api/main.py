@@ -153,7 +153,17 @@ async def chat(request: ChatRequest):
             # Jira agent was called to create a new ticket
             response_type = "CREATED"
             if result.get("created_ticket"):
-                tickets = [TicketInfo(**result["created_ticket"])]
+                ticket = result["created_ticket"]
+                # Ensure all required fields are present
+                ticket_info = TicketInfo(
+                    key=ticket.get("key", ""),
+                    summary=ticket.get("summary", ""),
+                    description=ticket.get("description", ""),
+                    status=ticket.get("status", "To Do"),
+                    priority=ticket.get("priority", "Medium"),
+                    similarity_score=None
+                )
+                tickets = [ticket_info]
         
         elif intent == "update":
             # Jira agent was called to update an existing ticket
@@ -216,55 +226,13 @@ async def chat_stream(request: ChatRequest):
             async def run_with_events():
                 """Run assistant and collect events"""
                 try:
-                    # Guardrail check
-                    await event_queue.put({'event': 'guardrail', 'message': '🛡️  Validating request...'})
-                    await asyncio.sleep(0.3)
-                    
-                    # Orchestrator
-                    await event_queue.put({'event': 'orchestrator', 'message': '🧠 Analyzing intent...'})
-                    await asyncio.sleep(0.3)
-                    
-                    # Similarity search
-                    await event_queue.put({'event': 'similarity', 'message': '🔍 Searching for similar tickets...'})
-                    
-                    # Run the actual assistant
+                    # Run the actual assistant with event queue
+                    # Events will be emitted by agents as they execute
                     result = await run_jira_assistant(
                         user_query=request.question,
-                        conversation_id=request.session_id
+                        conversation_id=request.session_id,
+                        event_queue=event_queue
                     )
-                    
-                    # Send results based on what actually happened
-                    intent = result.get("intent", "search")
-                    
-                    if intent == "search":
-                        # Similarity search was performed
-                        if result.get("similar_tickets"):
-                            count = len(result["similar_tickets"])
-                            await event_queue.put({
-                                'event': 'similarity_found',
-                                'message': f'✅ Found {count} similar ticket{"s" if count != 1 else ""}!',
-                                'count': count
-                            })
-                        else:
-                            await event_queue.put({'event': 'similarity_not_found', 'message': '📝 No similar tickets found'})
-                    
-                    elif intent == "create":
-                        # New ticket was created
-                        if result.get("created_ticket"):
-                            await event_queue.put({
-                                'event': 'ticket_created',
-                                'message': f'🎉 Created ticket {result["created_ticket"]["key"]}!',
-                                'ticket_key': result["created_ticket"]["key"]
-                            })
-                    
-                    elif intent == "update":
-                        # Existing ticket was updated
-                        if result.get("created_ticket"):
-                            await event_queue.put({
-                                'event': 'ticket_updated',
-                                'message': f'✨ Updated ticket {result["created_ticket"]["key"]}!',
-                                'ticket_key': result["created_ticket"]["key"]
-                            })
                     
                     # Transform result to match new response schema
                     tickets = []

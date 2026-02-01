@@ -1,88 +1,111 @@
 """Similarity agent for searching similar tickets"""
 
-from langchain_openai import ChatOpenAI
-from langchain.agents import create_openai_functions_agent, AgentExecutor
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+import sys
+import os
 from loguru import logger
 
 from src.models import AgentState
 from src.config import settings
-from src.tools.vector_search_tools import search_similar_tickets_tool
 
-
-# Initialize LLM
-llm = ChatOpenAI(
-    model=settings.openai_model,
-    temperature=0,
-    openai_api_key=settings.openai_api_key
+# Add similarity_agent to path
+similarity_agent_path = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    'similarity_agent'
 )
+sys.path.insert(0, similarity_agent_path)
+
+from similarity_agent import SimilarityAgent
 
 
-SIMILARITY_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", """You are a similarity search agent for Jira tickets. Your role is to find existing tickets similar to the user's query.
-
-Use the search_similar_tickets_tool to search for relevant tickets. Analyze the query and extract key information:
-- What is the main topic or issue?
-- What are the key technical terms?
-- What type of ticket might this be?
-
-When searching:
-1. Use descriptive search terms based on the query
-2. Look for tickets with similar problems, features, or topics
-3. Return the most relevant matches
-
-After searching, summarize what you found clearly."""),
-    ("user", "{input}"),
-    MessagesPlaceholder(variable_name="agent_scratchpad")
-])
+# Initialize similarity agent once (singleton pattern)
+_similarity_agent = None
 
 
-# Create agent
-tools = [search_similar_tickets_tool]
-agent = create_openai_functions_agent(llm, tools, SIMILARITY_PROMPT)
-agent_executor = AgentExecutor(
-    agent=agent,
-    tools=tools,
-    verbose=True,
-    max_iterations=3,
-    return_intermediate_steps=False
-)
+def get_similarity_agent() -> SimilarityAgent:
+    """Get or create the similarity agent instance"""
+    global _similarity_agent
+    if _similarity_agent is None:
+        _similarity_agent = SimilarityAgent()
+    return _similarity_agent
 
 
-def similarity_node(state: AgentState) -> AgentState:
+async def similarity_node(state: AgentState, config: dict = None) -> AgentState:
     """
-    Search for similar tickets using vector search
+    Search for similar tickets using the dedicated similarity agent
     
     Args:
         state: Current agent state
+        config: LangGraph config containing runtime context
     
     Returns:
         Updated state with similar tickets
     """
     logger.info("Similarity agent: Searching for similar tickets")
     
+    # Emit event if queue is available
+    event_queue = config.get("configurable", {}).get("event_queue") if config else None
+    if event_queue:
+        await event_queue.put({'event': 'similarity', 'message': '🔍 Searching for similar tickets...'})
+    
     query = state["user_query"]
+    max_results = getattr(settings, 'max_similarity_results', 5)
     
     try:
-        # Use agent to search
-        result = agent_executor.invoke({"input": query})
+        # Use the similarity agent to search
+        agent = get_similarity_agent()
+        result = agent.search(query=query, max_results=max_results)
         
-        # Parse the tool output to extract similar tickets
-        # The agent will have called search_similar_tickets_tool
-        # We need to extract the actual tickets from the intermediate steps
+        # Map the similarity agent response to our state format
+        matched_tickets = result.get("matched_tickets", [])
         
-        # For now, call the tool directly to get structured results
-        from src.tools.vector_search_tools import search_similar_tickets_tool as search_tool
-        search_result = search_tool.invoke({"query": query, "max_results": settings.max_similarity_results})
-        
-        if search_result["success"] and search_result["similar_tickets"]:
-            state["similar_tickets"] = search_result["similar_tickets"]
+        if matched_tickets:
+            # Convert to our JiraTicket format
+            similar_tickets = []
+            for ticket in matched_tickets:
+                similar_ticket = {
+                    "key": ticket.get("key", ""),
+                    "summary": ticket.get("summary", ""),
+                    "description": ticket.get("description", ""),
+                    "status": ticket.get("status", ""),
+                    "priority": ticket.get("priority", ""),
+                    "issue_type": ticket.get("issue_type", ""),
+                    "labels": ticket.get("labels", []),
+                    "similarity_score": ticket.get("similarity_score", 0.0),
+                    "id": None,
+                    "assignee": None,
+                    "created": "",
+                    "updated": ""
+                }
+                similar_tickets.append(similar_ticket)
+            
+            state["similar_tickets"] = similar_tickets
             state["has_similar_tickets"] = True
-            logger.info(f"Found {len(search_result['similar_tickets'])} similar tickets")
+            
+            logger.info(
+                f"Found {len(similar_tickets)} similar tickets "
+                f"(confidence: {result.get('confidence_level', 'unknown')})"
+            )
+            
+            # Emit success event
+            if event_queue:
+                count = len(similar_tickets)
+                await event_queue.put({
+                    'event': 'similarity_found',
+                    'message': f'✅ Found {count} similar ticket{"s" if count != 1 else ""}!',
+                    'count': count
+                })
         else:
             state["similar_tickets"] = []
             state["has_similar_tickets"] = False
             logger.info("No similar tickets found")
+            
+            # Emit no results event
+            if event_queue:
+                await event_queue.put({'event': 'similarity_not_found', 'message': '📝 No similar tickets found'})
+        
+        # Store additional metadata if needed
+        if result.get("error"):
+            state["error"] = result["error"]
         
     except Exception as e:
         logger.error(f"Similarity agent error: {e}")
