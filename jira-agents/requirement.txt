@@ -1,0 +1,8 @@
+langgraph
+openai
+fastapi
+uvicorn
+pydantic
+httpx
+python-dotenv
+tiktoken
