@@ -1,0 +1,155 @@
+{
+  "description": "Test cases for Jira Assistant - Guardrail & Orchestration flow",
+  "api_base_url": "http://localhost:8000",
+  "test_cases": [
+    {
+      "id": "TC-001",
+      "name": "Health check",
+      "method": "GET",
+      "endpoint": "/health",
+      "expected_status": 200,
+      "expected_response": {
+        "status": "healthy",
+        "service": "jira-assistant"
+      }
+    },
+    {
+      "id": "TC-002",
+      "name": "Root endpoint",
+      "method": "GET",
+      "endpoint": "/",
+      "expected_status": 200,
+      "expected_response": {
+        "message": "Jira Assistant API",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "id": "TC-003",
+      "name": "Vector store stats",
+      "method": "GET",
+      "endpoint": "/stats",
+      "expected_status": 200,
+      "expected_response_keys": ["total_tickets", "dimension", "index_path"]
+    },
+    {
+      "id": "TC-004",
+      "name": "First turn - check similar tickets",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-001",
+        "question": "Check if there are tickets about login bug"
+      },
+      "expected_status": 200,
+      "expected_intent": "search",
+      "expected_type": "SIMILAR",
+      "description": "First message in session -> Guardrail pass -> Orchestrator routes to Similarity"
+    },
+    {
+      "id": "TC-005",
+      "name": "Second turn - create follow-up",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-001",
+        "question": "Create a new ticket for this"
+      },
+      "expected_status": 200,
+      "expected_intent": "create",
+      "expected_type": "CREATED",
+      "depends_on": "TC-004",
+      "description": "Second message (session exists) -> Orchestrator routes to Jira agent"
+    },
+    {
+      "id": "TC-006",
+      "name": "New session - first turn with create keywords",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-002",
+        "question": "Create a bug for payment timeout"
+      },
+      "expected_status": 200,
+      "expected_intent": "search",
+      "expected_type": "SIMILAR",
+      "description": "First turn always goes to Similarity (by design), even with create keywords"
+    },
+    {
+      "id": "TC-007",
+      "name": "Verify intent",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-003",
+        "question": "Verify if similar tickets exist for API timeout"
+      },
+      "expected_status": 200,
+      "expected_intent": "search",
+      "expected_type": "SIMILAR",
+      "description": "Verify keyword -> Similarity agent"
+    },
+    {
+      "id": "TC-008",
+      "name": "Update ticket",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-004",
+        "question": "Update PROJ-123 priority to High"
+      },
+      "expected_status": 200,
+      "expected_intent": "update",
+      "expected_type": "UPDATED",
+      "description": "Update keyword -> Jira agent"
+    },
+    {
+      "id": "TC-009",
+      "name": "Find tickets",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-005",
+        "question": "Find tickets about database connection issues"
+      },
+      "expected_status": 200,
+      "expected_intent": "search",
+      "expected_type": "SIMILAR",
+      "description": "Find keyword -> Similarity agent"
+    },
+    {
+      "id": "TC-010",
+      "name": "Empty question validation",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-006",
+        "question": ""
+      },
+      "expected_status": 400,
+      "description": "Empty question should return 400"
+    },
+    {
+      "id": "TC-011",
+      "name": "Guardrail - invalid request",
+      "method": "POST",
+      "endpoint": "/chat",
+      "payload": {
+        "session_id": "test-session-007",
+        "question": "Delete all tickets in the project"
+      },
+      "expected_status": 200,
+      "expected_guardrail_block": true,
+      "description": "Delete request should be blocked by guardrail"
+    },
+    {
+      "id": "TC-012",
+      "name": "Sync trigger",
+      "method": "POST",
+      "endpoint": "/sync",
+      "expected_status": 200,
+      "expected_response_keys": ["message", "status"],
+      "description": "Manual sync trigger"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-"""Similarity agent for searching similar tickets"""
+"""Similarity agent for searching similar tickets and checking historical data"""
 
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_openai_functions_agent, AgentExecutor
@@ -7,7 +7,8 @@ from loguru import logger
 
 from src.models import AgentState
 from src.config import settings
-from src.tools.vector_search_tools import search_similar_tickets_tool
+from src.tools.vector_search_tools import search_similar_tickets_tool, has_historical_data
+from src.services import session_store
 
 
 # Initialize LLM
@@ -51,29 +52,39 @@ agent_executor = AgentExecutor(
 
 def similarity_node(state: AgentState) -> AgentState:
     """
-    Search for similar tickets using vector search
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Updated state with similar tickets
+    Search for similar tickets. Checks if historical data exists first.
+    Stores results in session for multi-turn flow.
     """
-    logger.info("Similarity agent: Searching for similar tickets")
+    logger.info("Similarity agent: Checking historical data and searching")
     
     query = state["user_query"]
+    session_id = state.get("conversation_id")
+    
+    # Check if vector store has historical data
+    has_data = has_historical_data()
+    state["has_historical_data"] = has_data
+    
+    if not has_data:
+        logger.info("Similarity agent: No historical data in vector store")
+        state["similar_tickets"] = []
+        state["has_similar_tickets"] = False
+        state["final_response"] = (
+            "No historical ticket data is available yet. "
+            "The system needs to sync tickets from Jira first. "
+            "Would you like me to create a new ticket for this issue?"
+        )
+        if session_id:
+            session_store.store_similarity_results(session_id, [])
+            session_store.mark_turn_complete(session_id)
+        return state
     
     try:
-        # Use agent to search
-        result = agent_executor.invoke({"input": query})
-        
-        # Parse the tool output to extract similar tickets
-        # The agent will have called search_similar_tickets_tool
-        # We need to extract the actual tickets from the intermediate steps
-        
-        # For now, call the tool directly to get structured results
+        # Direct tool call for structured results
         from src.tools.vector_search_tools import search_similar_tickets_tool as search_tool
-        search_result = search_tool.invoke({"query": query, "max_results": settings.max_similarity_results})
+        search_result = search_tool.invoke({
+            "query": query,
+            "max_results": settings.max_similarity_results
+        })
         
         if search_result["success"] and search_result["similar_tickets"]:
             state["similar_tickets"] = search_result["similar_tickets"]
@@ -84,6 +95,11 @@ def similarity_node(state: AgentState) -> AgentState:
             state["has_similar_tickets"] = False
             logger.info("No similar tickets found")
         
+        # Store in session for next turn
+        if session_id:
+            session_store.store_similarity_results(session_id, state["similar_tickets"])
+            session_store.mark_turn_complete(session_id)
+        
     except Exception as e:
         logger.error(f"Similarity agent error: {e}")
         state["similar_tickets"] = []
@@ -91,4 +107,3 @@ def similarity_node(state: AgentState) -> AgentState:
         state["error"] = str(e)
     
     return state
-

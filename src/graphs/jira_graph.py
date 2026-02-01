@@ -1,4 +1,4 @@
-"""LangGraph workflow for Jira assistance"""
+"""LangGraph workflow for Jira assistance with Guardrail and Orchestration"""
 
 from datetime import datetime
 from typing import Literal
@@ -11,166 +11,129 @@ from src.agents import orchestrator_node, guardrail_node, similarity_node, jira_
 
 def create_final_response_node(state: AgentState) -> AgentState:
     """
-    Create final response for search or info intents
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Updated state with final response
+    Create final response for search/verify intents.
+    Presents similar tickets to user and asks them to decide action (create/update).
     """
     logger.info("Creating final response")
     
-    intent = state.get("intent", "info")
+    # Similarity agent may have already set final_response (no historical data)
+    if state.get("final_response") and state.get("has_historical_data") is False:
+        return state
     
-    if intent == "search":
-        similar_tickets = state.get("similar_tickets", [])
-        
-        if similar_tickets:
-            response_parts = [
-                f"I found {len(similar_tickets)} similar ticket(s):\n"
-            ]
-            
-            for i, ticket in enumerate(similar_tickets, 1):
-                score = ticket.get("similarity_score", 0)
-                response_parts.append(
-                    f"\n{i}. **{ticket['key']}** - {ticket['summary']}\n"
-                    f"   Status: {ticket['status']} | Priority: {ticket['priority']}\n"
-                    f"   Similarity: {score:.1%}\n"
-                    f"   Description: {ticket['description'][:150]}..."
-                )
-            
-            response_parts.append(
-                "\n\nWould you like me to create a new ticket or update one of these?"
-            )
-            
-            state["final_response"] = "".join(response_parts)
-        else:
-            state["final_response"] = (
-                "I didn't find any similar tickets. "
-                "Would you like me to create a new ticket for this issue?"
-            )
-    
-    elif intent == "info":
+    # If we came from orchestrator directly (route_to=final, info/help)
+    route_to = state.get("route_to")
+    if route_to == "final" and not state.get("similar_tickets"):
         state["final_response"] = (
             "I'm your Jira assistant! I can help you:\n"
-            "- Search for existing tickets\n"
-            "- Create new tickets\n"
-            "- Update existing tickets\n\n"
+            "- **Check/verify** if similar tickets exist (say 'check if there are tickets about X')\n"
+            "- **Create** new tickets (say 'create a ticket for...')\n"
+            "- **Update** existing tickets (say 'update PROJ-123 status to Done')\n\n"
             "What would you like to do?"
+        )
+        return state
+    
+    similar_tickets = state.get("similar_tickets", [])
+    
+    if similar_tickets:
+        response_parts = [
+            f"I found {len(similar_tickets)} similar ticket(s):\n"
+        ]
+        
+        for i, ticket in enumerate(similar_tickets, 1):
+            score = ticket.get("similarity_score", 0)
+            desc = ticket.get("description", "")
+            desc_preview = desc[:150] + "..." if len(desc) > 150 else desc
+            response_parts.append(
+                f"\n{i}. **{ticket['key']}** - {ticket['summary']}\n"
+                f"   Status: {ticket['status']} | Priority: {ticket['priority']}\n"
+                f"   Similarity: {score:.1%}\n"
+                f"   Description: {desc_preview}\n"
+            )
+        
+        response_parts.append(
+            "\n\n**What would you like to do?**\n"
+            "- Say 'create new ticket' or 'create a ticket' to add a new one\n"
+            "- Say 'update [ticket-key]' to modify an existing ticket"
+        )
+        
+        state["final_response"] = "".join(response_parts)
+    else:
+        state["final_response"] = (
+            "I didn't find any similar tickets. "
+            "Would you like me to create a new ticket for this issue? "
+            "Just say 'create ticket' or 'create new ticket'."
         )
     
     return state
 
 
 def should_continue_after_guardrail(state: AgentState) -> Literal["orchestrator", "end"]:
-    """
-    Route after guardrail check
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Next node to execute
-    """
+    """Route after guardrail: pass to orchestrator or end with rejection."""
     if state["is_valid_request"]:
         return "orchestrator"
-    else:
-        return "end"
+    return "end"
 
 
-def should_check_similarity(state: AgentState) -> Literal["similarity", "jira", "final", "end"]:
+def route_from_orchestrator(state: AgentState) -> Literal["similarity", "jira", "final", "end"]:
     """
-    Route after intent classification
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Next node to execute
+    Route based on orchestrator's route_to decision.
     """
-    intent = state.get("intent", "info")
+    route_to = state.get("route_to", "similarity")
     
-    if intent == "create":
-        # Check for similar tickets before creating
-        return "similarity"
-    elif intent == "update":
-        # Go directly to Jira agent for updates
+    if route_to == "jira":
         return "jira"
-    elif intent == "search":
-        # Go to similarity search
+    elif route_to == "similarity":
         return "similarity"
-    else:  # info or unknown
+    else:
         return "final"
 
 
-def should_create_ticket(state: AgentState) -> Literal["jira", "final"]:
+def should_create_ticket_after_similarity(state: AgentState) -> Literal["jira", "final"]:
     """
-    Decide whether to create ticket after similarity search
-    
-    Args:
-        state: Current agent state
-    
-    Returns:
-        Next node to execute
+    After similarity: either create ticket (if intent=create and no duplicates)
+    or show results to user for decision.
     """
     intent = state.get("intent", "search")
     
-    # If intent was create and no highly similar tickets found, create the ticket
     if intent == "create":
         similar_tickets = state.get("similar_tickets", [])
-        
-        # Check if any tickets are very similar (>90% similarity)
         has_duplicate = any(
             ticket.get("similarity_score", 0) > 0.9
             for ticket in similar_tickets
         )
-        
         if has_duplicate:
-            # Show similar tickets instead of creating
-            logger.info("Found highly similar ticket, not creating new one")
+            logger.info("Found highly similar ticket, showing to user for decision")
             return "final"
-        else:
-            # Proceed with creation
-            return "jira"
-    else:
-        # For search intent, just show results
-        return "final"
+        return "jira"
+    
+    # For search/verify - show results to user
+    return "final"
 
 
 def create_jira_graph() -> StateGraph:
     """
-    Create the LangGraph workflow for Jira assistance
-    
-    Returns:
-        Compiled StateGraph
+    Create the LangGraph workflow:
+    Guardrail -> Orchestrator -> [Similarity | Jira | Final] -> End
     """
-    # Create graph
     workflow = StateGraph(AgentState)
     
-    # Add nodes
     workflow.add_node("guardrail", guardrail_node)
     workflow.add_node("orchestrator", orchestrator_node)
     workflow.add_node("similarity", similarity_node)
     workflow.add_node("jira", jira_node)
     workflow.add_node("final", create_final_response_node)
     
-    # Set entry point
     workflow.set_entry_point("guardrail")
     
-    # Add edges
     workflow.add_conditional_edges(
         "guardrail",
         should_continue_after_guardrail,
-        {
-            "orchestrator": "orchestrator",
-            "end": END
-        }
+        {"orchestrator": "orchestrator", "end": END}
     )
     
     workflow.add_conditional_edges(
         "orchestrator",
-        should_check_similarity,
+        route_from_orchestrator,
         {
             "similarity": "similarity",
             "jira": "jira",
@@ -181,44 +144,41 @@ def create_jira_graph() -> StateGraph:
     
     workflow.add_conditional_edges(
         "similarity",
-        should_create_ticket,
-        {
-            "jira": "jira",
-            "final": "final"
-        }
+        should_create_ticket_after_similarity,
+        {"jira": "jira", "final": "final"}
     )
     
     workflow.add_edge("jira", END)
     workflow.add_edge("final", END)
     
-    # Compile
     graph = workflow.compile()
-    
     logger.info("Jira graph compiled successfully")
     return graph
 
 
 async def run_jira_assistant(user_query: str, conversation_id: str = None) -> dict:
     """
-    Run the Jira assistant workflow
+    Run the Jira assistant workflow.
     
-    Args:
-        user_query: User's query/request
-        conversation_id: Optional conversation ID
-    
-    Returns:
-        Dictionary with response and metadata
+    Flow:
+    1. Guardrail validates + stores session_id
+    2. Orchestrator routes: similarity (check/verify/first) or jira (create/update)
+    3. Similarity checks historical data, searches, returns to UI for user decision
+    4. Next turn: User says create/update -> Jira agent
     """
     logger.info(f"Processing query: {user_query}")
     
-    # Initialize state
     initial_state: AgentState = {
         "user_query": user_query,
         "intent": None,
         "is_valid_request": True,
         "guardrail_message": None,
+        "session_exists": False,
+        "is_first_turn": True,
+        "route_to": None,
         "similar_tickets": [],
         "has_similar_tickets": False,
+        "has_historical_data": None,
         "action_type": None,
         "ticket_data": None,
         "created_ticket": None,
@@ -228,7 +188,6 @@ async def run_jira_assistant(user_query: str, conversation_id: str = None) -> di
         "error": None
     }
     
-    # Create and run graph
     graph = create_jira_graph()
     
     try:
@@ -241,7 +200,8 @@ async def run_jira_assistant(user_query: str, conversation_id: str = None) -> di
             "created_ticket": final_state.get("created_ticket"),
             "action_type": final_state.get("action_type"),
             "error": final_state.get("error"),
-            "timestamp": final_state.get("timestamp")
+            "timestamp": final_state.get("timestamp"),
+            "session_id": conversation_id,
         }
         
     except Exception as e:
@@ -251,4 +211,3 @@ async def run_jira_assistant(user_query: str, conversation_id: str = None) -> di
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         }
-
